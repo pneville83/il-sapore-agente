@@ -77,7 +77,7 @@ async def login(request: Request, response: Response, credenciales: LoginRequest
     else:
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-@router.get("/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok", "mensaje": "Agente de Il Sapore funcionando"}
 
