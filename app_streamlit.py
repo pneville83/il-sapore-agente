@@ -21,7 +21,7 @@ if st.session_state.usuario is None:
             response = requests.post(
                 f"{FASTAPI_URL}/login",
                 json={"username": username, "password": password},
-                timeout=10
+                timeout=60
             )
             if response.status_code == 200:
                 st.session_state.usuario = response.json()
