@@ -34,6 +34,7 @@ class MensajeWhatsApp(BaseModel):
     whatsapp_real: Optional[str] = None
     whatsapp_lid: Optional[str] = None
     ubicacion_id: int = 1
+    historial: Optional[List[MensajeHistorial]] = None
 
 class Comprobante(BaseModel):
     pedido_id: int
@@ -89,7 +90,7 @@ async def whatsapp(mensaje: MensajeWhatsApp):
         whatsapp_real=mensaje.whatsapp_real,
         whatsapp_lid=mensaje.whatsapp_lid,
         usuario_id=None,
-        historial_previo=None
+        historial_previo=mensaje.historial
     )
     return resultado
 

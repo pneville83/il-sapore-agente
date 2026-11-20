@@ -1,4 +1,4 @@
-from app.tools.inventario import consultar_inventario, buscar_producto_por_nombre
+from app.tools.inventario import consultar_inventario, buscar_producto_por_nombre, cambiar_disponibilidad_producto
 from app.tools.ventas import consultar_ventas_dia, consultar_flujo_dinero
 from app.tools.gastos import registrar_gasto, consultar_gastos
 from app.tools.compras import registrar_compra, consultar_compras
@@ -367,6 +367,23 @@ herramientas = [
                     "ubicacion_id": {"type": "integer", "description": "ID de la sucursal (1 por defecto)"}
                 },
                 "required": ["etapa"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cambiar_disponibilidad_producto",
+            "description": "Cambia la disponibilidad de un producto en una ubicación o en todas. El superadmin puede cambiar en cualquier ubicación o en todas (todas=True). El admin solo puede cambiar en su propia ubicación. Úsala cuando el superadmin o el admin digan 'deshabilita X', 'marca X como no disponible', 'vuelve a habilitar X', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "producto_id": {"type": "integer", "description": "ID del producto"},
+                    "disponible": {"type": "boolean", "description": "True para disponible, False para no disponible"},
+                    "ubicacion_id": {"type": "integer", "description": "ID de la sucursal (opcional si todas=True)"},
+                    "todas": {"type": "boolean", "description": "True para cambiar en todas las ubicaciones (solo superadmin)"}
+                },
+                "required": ["producto_id", "disponible"]
             }
         }
     },

@@ -4,7 +4,11 @@ from app.core.auth import identificar_usuario, obtener_info_usuario
 from app.agent.definitions import herramientas
 
 # Mapa de herramientas: nombre -> función
-from app.tools.inventario import consultar_inventario, buscar_producto_por_nombre
+from app.tools.inventario import (
+    consultar_inventario,
+    buscar_producto_por_nombre,
+    cambiar_disponibilidad_producto,
+)
 from app.tools.ventas import consultar_ventas_dia, consultar_flujo_dinero
 from app.tools.gastos import registrar_gasto, consultar_gastos
 from app.tools.compras import registrar_compra, consultar_compras
@@ -54,6 +58,7 @@ MAPA_HERRAMIENTAS = {
     "crear_pedido": crear_pedido,
     "deshabilitar_etapa": deshabilitar_etapa,
     "habilitar_etapa": habilitar_etapa,
+    "cambiar_disponibilidad_producto": cambiar_disponibilidad_producto,
 }
 
 # ============================================
@@ -101,6 +106,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "crear_pedido",
         "deshabilitar_etapa",
         "habilitar_etapa",
+        "cambiar_disponibilidad_producto",
     ],
     "superadmin": [
         "consultar_inventario",
@@ -124,6 +130,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "crear_pedido",
         "deshabilitar_etapa",
         "habilitar_etapa",
+        "cambiar_disponibilidad_producto",
     ]
 }
 
@@ -132,7 +139,7 @@ HERRAMIENTAS_PROHIBIDAS = ["drop_table", "delete_table", "alter_table", "truncat
 
 def agente(pregunta, whatsapp_usuario=None, whatsapp_real=None, whatsapp_lid=None, usuario_id=None, historial_previo=None):
     print(f"DEBUG agente: whatsapp={whatsapp_usuario}, usuario_id={usuario_id}")
-    
+
     # 1. Identificar al usuario (si viene por WhatsApp)
     info_usuario = None
     if whatsapp_usuario:
@@ -142,11 +149,11 @@ def agente(pregunta, whatsapp_usuario=None, whatsapp_real=None, whatsapp_lid=Non
     elif whatsapp_lid:
         info_usuario = identificar_usuario(whatsapp_lid)
     elif usuario_id:
-        info_usuario = obtener_info_usuario(usuario_id)    
-    
+        info_usuario = obtener_info_usuario(usuario_id)
+
     print(f"DEBUG agente: info_usuario={info_usuario}")
     print(f"DEBUG agente: rol={info_usuario.get('rol') if info_usuario else 'None'}")
-    
+
     # 2. Construir el system prompt según el rol (lee 'rol', no 'tipo')
     if info_usuario and info_usuario.get("rol") == "superadmin":
         rol = "superadmin"
@@ -159,11 +166,12 @@ Eres el asistente del SUPERADMINISTRADOR (dueño del negocio). Tienes acceso TOT
 - Registrar pagos (efectivo, transferencia, tarjeta).
 - Autorizar o rechazar transferencias pendientes (eres el ÚNICO que puede hacerlo).
 - Gestionar etapas de despacho (habilitar/deshabilitar).
+- Cambiar la disponibilidad de productos: en una ubicación específica (ubicacion_id) o en TODAS (todas=True).
 - Gestionar productos (borrar, actualizar precio) con doble confirmación.
 
 UBICACIONES:
 - No tienes una ubicación fija. Cuando te pidan reportes, muestra TODAS las ubicaciones por defecto, o filtra por la que el superadmin indique (ej: "ventas de Villas del Rey").
-- Cuando te pidan operaciones (crear pedido, registrar gasto, etc.), pregunta a qué ubicación si no está claro.
+- Cuando te pidan operaciones (crear pedido, registrar gasto, cambiar disponibilidad, etc.), pregunta a qué ubicación si no está claro.
 
 TRANSFERENCIAS:
 - Cuando el superadmin responda (ej: "sí", "dale", "autorizado", "rechazado"), usa autorizar_transferencia.
@@ -194,6 +202,7 @@ Eres el asistente de un ADMINISTRADOR. Puedes:
 - Registrar pagos (efectivo, transferencia, tarjeta).
 - Autorizar transferencias pendientes.
 - Gestionar etapas de despacho (habilitar/deshabilitar).
+- Cambiar la disponibilidad de productos SOLO en tu ubicación ({ubicacion_id}). No puedes cambiarla en otras ubicaciones ni en todas.
 NUNCA uses DROP, TRUNCATE o ALTER TABLE.
 NUNCA borres tablas o columnas.
 Para operaciones destructivas (borrar un producto, actualizar un precio), 
@@ -262,7 +271,7 @@ IMPORTANTE sobre el menú:
 - Las pizzas tienen variaciones de tamaño (Pequeña, Mediana, Grande). Muéstralas con sus precios.
 - Las promos y combos son platos principales, pero tienen sus propias variaciones.
 - Si el cliente pide un plato principal, muéstralo con su precio. Si pide un adicional, muéstralo como extra.
-- Cada producto tiene una 'descripcion' con sus ingredientes. Si el cliente pregunta "¿qué es la Italian Fiesta?" o "¿qué lleva?", busca el producto y lee su descripción. No inventes.
+- Cada producto tiene una 'descripcion' con sus ingredientes. Si el cliente pregunta "¿qué es la Italian Fiesta?" o "¿qué lleva?", usa buscar_producto_por_nombre y lee el campo 'descripcion'. No inventes ingredientes: si la descripción está vacía, di "no tengo esa información, consulta con el local".
 
 REGLAS IMPORTANTES:
 - NO inventes precios. El total lo calcula crear_pedido desde la base de datos.
@@ -271,37 +280,38 @@ REGLAS IMPORTANTES:
 - Si el cliente pide un adicional (Huevo, Tocino, Cheddar, etc.), ofrécelo como extra de un plato principal, no como plato aparte.
 - Si el cliente pide una etapa que no está disponible, ofrécele alternativa.
 - Si el cliente pregunta qué lleva un producto o qué es, usa buscar_producto_por_nombre y lee el campo 'descripcion'. No inventes ingredientes: si la descripción está vacía, di "no tengo esa información, consulta con el local".
+
 FORMATO:
 - Montos en texto normal (ej: $5.00).
 - Sin LaTeX ni símbolos raros.
 - Respuestas cortas y amables.
 """
-    
+
     # 3. Construir el historial
     historial = [{"role": "system", "content": system_prompt}]
-    
+
     if historial_previo:
         for msg in historial_previo:
             historial.append({"role": msg.role, "content": msg.content})
-    
+
     historial.append({"role": "user", "content": pregunta})
-    
+
     # 4. Bucle del agente (ReAct)
     while True:
         mensaje = llamar_llm(historial, herramientas)
         historial.append(mensaje)
-        
+
         if not mensaje.tool_calls:
             return {
                 "respuesta": mensaje.content,
                 "rol": rol,
                 "ubicacion_id": ubicacion_id
             }
-        
+
         for llamada in mensaje.tool_calls:
             nombre = llamada.function.name
             argumentos = json.loads(llamada.function.arguments)
-            
+
             # CAPA 1: Herramientas prohibidas
             if nombre in HERRAMIENTAS_PROHIBIDAS:
                 resultado = (
@@ -311,7 +321,7 @@ FORMATO:
             else:
                 # CAPA 2: Permisos por rol
                 herramientas_permitidas = HERRAMIENTAS_PERMITIDAS.get(rol, [])
-                
+
                 if nombre not in herramientas_permitidas:
                     resultado = (
                         f"Error de seguridad: El rol '{rol}' no tiene permiso para usar '{nombre}'. "
@@ -320,21 +330,26 @@ FORMATO:
                 elif nombre in MAPA_HERRAMIENTAS:
                     funcion = MAPA_HERRAMIENTAS[nombre]
                     try:
+                        # Inyectar rol y ubicacion_usuario para herramientas que los necesitan
+                        if nombre == "cambiar_disponibilidad_producto":
+                            argumentos["rol"] = rol
+                            argumentos["ubicacion_usuario"] = ubicacion_id
                         resultado = funcion(**argumentos)
+                        # Si acaba de crear un pedido exitoso, orquestar (decidir notificación)
                         if nombre == "crear_pedido" and isinstance(resultado, dict) and resultado.get("estado") == "ok":
-                           from app.tools.pedidos import orquestar_pedido
-                           orq = orquestar_pedido(
-                               pedido_id=resultado["pedido_id"],
-                               metodo_pago=argumentos.get("metodo_pago", ""),
-                               confiable=resultado.get("confiable", False),
-                               ubicacion_id=argumentos.get("ubicacion_id", 1),
-                           )
-                           print(f"DEBUG orquestar_pedido: {orq}")
+                            from app.tools.pedidos import orquestar_pedido
+                            orq = orquestar_pedido(
+                                pedido_id=resultado["pedido_id"],
+                                metodo_pago=argumentos.get("metodo_pago", ""),
+                                confiable=resultado.get("confiable", False),
+                                ubicacion_id=argumentos.get("ubicacion_id", 1),
+                            )
+                            print(f"DEBUG orquestar_pedido: {orq}")
                     except Exception as e:
-                        resultado = f"Error al ejecutar {nombre}: {str(e)}"        
+                        resultado = f"Error al ejecutar {nombre}: {str(e)}"
                 else:
                     resultado = f"Herramienta no reconocida: {nombre}"
-            
+
             historial.append({
                 "role": "tool",
                 "tool_call_id": llamada.id,
