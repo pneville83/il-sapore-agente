@@ -33,6 +33,7 @@ from app.tools.pedidos import (
     deshabilitar_etapa,
     habilitar_etapa,
     notificar_admin_pedido,
+    cambiar_metodo_pago_pedido,
 )
 
 
@@ -59,6 +60,7 @@ MAPA_HERRAMIENTAS = {
     "deshabilitar_etapa": deshabilitar_etapa,
     "habilitar_etapa": habilitar_etapa,
     "cambiar_disponibilidad_producto": cambiar_disponibilidad_producto,
+    "cambiar_metodo_pago_pedido": cambiar_metodo_pago_pedido,
 }
 
 # ============================================
@@ -71,6 +73,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "generar_link_pago",
         "buscar_o_crear_cliente",
         "crear_pedido",
+        "cambiar_metodo_pago_pedido",
     ],
     "empleado": [
         "consultar_inventario",
@@ -83,6 +86,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "buscar_producto_por_nombre",
         "buscar_o_crear_cliente",
         "crear_pedido",
+        "cambiar_metodo_pago_pedido",
     ],
     "admin": [
         "consultar_inventario",
@@ -107,6 +111,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "deshabilitar_etapa",
         "habilitar_etapa",
         "cambiar_disponibilidad_producto",
+        "cambiar_metodo_pago_pedido",
     ],
     "superadmin": [
         "consultar_inventario",
@@ -131,6 +136,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "deshabilitar_etapa",
         "habilitar_etapa",
         "cambiar_disponibilidad_producto",
+        "cambiar_metodo_pago_pedido",
     ]
 }
 
@@ -262,6 +268,13 @@ FLUJO PARA TOMAR UN PEDIDO:
    - estado="faltan_datos_cliente": pide los campos_faltantes y vuelve a llamar.
    - estado="producto_no_existe" o "precio_no_disponible": discúlpate y sugiere alternativas.
    - string de error: discúlpate, di que hubo un problema y pide reintentar.
+
+CAMBIO DE MÉTODO DE PAGO:
+- Si el cliente ya creó el pedido y quiere cambiar el método de pago (ej. "mejor pago en efectivo", "cambio a transferencia"), usa cambiar_metodo_pago_pedido con el pedido_id y el nuevo método.
+- SOLO confirma el cambio cuando la herramienta devuelva estado="ok".
+- Si devuelve error (ej. el pedido ya tiene pago registrado), discúlpate y explica que no se puede cambiar.
+
+REGLA CRÍTICA: NUNCA digas "tu pedido queda así", "se prepara", "se elabora" o "se envía al admin" si NO llamaste una herramienta que lo confirme. Si no llamaste crear_pedido o cambiar_metodo_pago_pedido, no prometas nada. Di "déjame confirmarlo" y llama la herramienta.
 
 IMPORTANTE: Como cliente, NO puedes registrar gastos, compras ni pagos. 
 Si el usuario pide algo de eso, responde: "Lo siento, esa operación solo la puede hacer un administrador."

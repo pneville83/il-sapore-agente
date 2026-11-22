@@ -20,6 +20,7 @@ from app.tools.pedidos import (
     crear_pedido,
     deshabilitar_etapa,
     habilitar_etapa,
+    cambiar_metodo_pago_pedido,
 )
 
 herramientas = [
@@ -384,6 +385,21 @@ herramientas = [
                     "todas": {"type": "boolean", "description": "True para cambiar en todas las ubicaciones (solo superadmin)"}
                 },
                 "required": ["producto_id", "disponible"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cambiar_metodo_pago_pedido",
+            "description": "Cambia el método de pago de un pedido existente que aún no ha sido pagado ni preparado (estado='Recibido'). Úsala cuando el cliente diga que quiere cambiar de efectivo a transferencia, de tarjeta a efectivo, etc. Después de llamarla, el sistema re-notifica al admin según el nuevo método.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pedido_id": {"type": "integer", "description": "ID del pedido a modificar"},
+                    "nuevo_metodo": {"type": "string", "enum": ["efectivo", "transferencia", "tarjeta"], "description": "Nuevo método de pago"}
+                },
+                "required": ["pedido_id", "nuevo_metodo"]
             }
         }
     },

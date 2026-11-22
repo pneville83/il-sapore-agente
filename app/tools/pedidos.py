@@ -515,3 +515,90 @@ def notificar_admin_pedido(pedido_id: int, admin_whatsapp: str):
             if conexion: conexion.close()
         except Exception:
             pass
+
+
+# ============================================================
+# CAMBIAR MÉTODO DE PAGO DE UN PEDIDO EXISTENTE
+# ============================================================
+
+def cambiar_metodo_pago_pedido(pedido_id: int, nuevo_metodo: str):
+    """
+    Cambia el método de pago de un pedido existente (solo si estado='Recibido'
+    y no tiene transacción registrada). Luego re-orquesta para notificar
+    al admin según el nuevo método.
+    """
+    if nuevo_metodo not in ("efectivo", "transferencia", "tarjeta"):
+        return f"Error: metodo_pago inválido ('{nuevo_metodo}'). Debe ser efectivo, transferencia o tarjeta."
+
+    conexion = None
+    cursor = None
+    try:
+        conexion = psycopg2.connect(DATABASE_URL)
+        cursor = conexion.cursor()
+
+        # 1. Verificar pedido
+        cursor.execute("""
+            SELECT p.id, p.metodo_pago, p.estado, p.ubicacion_id, p.cliente_id,
+                   c.confiable
+            FROM pedidos p
+            LEFT JOIN clientes c ON c.id = p.cliente_id
+            WHERE p.id = %s
+        """, (pedido_id,))
+        fila = cursor.fetchone()
+        if not fila:
+            return f"Error: pedido #{pedido_id} no existe."
+
+        pid, metodo_actual, estado, ubicacion_id, cliente_id, confiable = fila
+
+        if estado != "Recibido":
+            return f"Error: el pedido #{pedido_id} ya está en estado '{estado}'. No se puede cambiar el método de pago."
+
+        if metodo_actual == nuevo_metodo:
+            return {
+                "estado": "sin_cambio",
+                "pedido_id": pedido_id,
+                "metodo_pago": nuevo_metodo,
+                "mensaje": f"El pedido #{pedido_id} ya estaba en '{nuevo_metodo}'.",
+            }
+
+        # 2. Verificar que no tenga transacción
+        cursor.execute("SELECT COUNT(*) FROM transacciones WHERE pedido_id = %s", (pedido_id,))
+        if cursor.fetchone()[0] > 0:
+            return f"Error: el pedido #{pedido_id} ya tiene un pago registrado. No se puede cambiar el método."
+
+        # 3. Actualizar
+        cursor.execute("""
+            UPDATE pedidos SET metodo_pago = %s WHERE id = %s
+        """, (nuevo_metodo, pedido_id))
+        conexion.commit()
+
+        print(f"DEBUG cambiar_metodo_pago: pedido #{pedido_id} {metodo_actual} -> {nuevo_metodo}")
+
+        # 4. Re-orquestar
+        orq = orquestar_pedido(
+            pedido_id=pedido_id,
+            metodo_pago=nuevo_metodo,
+            confiable=confiable if confiable is not None else True,
+            ubicacion_id=ubicacion_id,
+        )
+        print(f"DEBUG cambiar_metodo_pago: re-orquestado -> {orq}")
+
+        return {
+            "estado": "ok",
+            "pedido_id": pedido_id,
+            "metodo_anterior": metodo_actual,
+            "metodo_pago": nuevo_metodo,
+            "orquestacion": orq,
+            "mensaje": f"Pedido #{pedido_id} actualizado a '{nuevo_metodo}'. {orq.get('mensaje', '')}",
+        }
+
+    except Exception as e:
+        if conexion:
+            try: conexion.rollback()
+            except Exception: pass
+        return f"Error al cambiar método de pago: {str(e)}"
+    finally:
+        try:
+            if cursor: cursor.close()
+            if conexion: conexion.close()
+        except Exception: pass
