@@ -70,15 +70,18 @@ def generar_link_pago_con_pending(pedido_id, ubicacion_id=None):
         cursor = conexion.cursor()
 
         # 1. Leer pedido (no confiar en el LLM para el monto)
-        cursor.execute(
-            "SELECT id, total, ubicacion_id, metodo_pago, estado FROM pedidos WHERE id = %s",
-            (pedido_id,)
-        )
+        cursor.execute("""
+            SELECT p.id, p.total, p.ubicacion_id, p.metodo_pago, p.estado,
+                   c.whatsapp
+            FROM pedidos p
+            LEFT JOIN clientes c ON c.id = p.cliente_id
+            WHERE p.id = %s
+        """, (pedido_id,))
         fila = cursor.fetchone()
         if not fila:
             return f"Error: pedido #{pedido_id} no existe."
 
-        pid, total, ubicacion_pedido, metodo_actual, estado = fila
+        pid, total, ubicacion_pedido, metodo_actual, estado, cliente_whatsapp = fila
 
         if metodo_actual != "tarjeta":
             return f"Error: el pedido #{pedido_id} tiene metodo_pago='{metodo_actual}', no 'tarjeta'."
@@ -104,12 +107,13 @@ def generar_link_pago_con_pending(pedido_id, ubicacion_id=None):
             VALUES (%s, %s, %s, %s, %s, %s, 'PAYPHONE_PENDING')
         """, (
             client_transaction_id,
-            "",  # customer_whatsapp: no lo tenemos aquí, el procesador no lo necesita
+            cliente_whatsapp or "",
             "",
             None,
             None,
             psycopg2.extras.Json(snapshot),
         ))
+                
         conexion.commit()
 
         # 4. Generar el link con Payphone
