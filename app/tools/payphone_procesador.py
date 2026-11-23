@@ -23,11 +23,12 @@ from app.tools.pedidos import obtener_admin_pedido, notificar_admin_pedido
 def _consultar_estado_payphone(client_transaction_id: str):
     """
     Consulta a Payphone el estado de una transacción usando el clientTransactionId.
+    Endpoint: GET {PAYPHONE_CHECK_STATUS_URL}/{clientTransactionId}
     Devuelve el StatusCode (int) o None si hay error.
-    StatusCode: 3 = Aprobado, 2 = Rechazado/Cancelado.
+    Según Payphone: Aceptado = aprobado, Cancelado = rechazado, Pendiente = esperar.
     """
     if not PAYPHONE_CHECK_STATUS_URL:
-        print("ERROR: PAYPHONE_CHECK_STATUS_URL no configurado.")
+        print("ERROR: PAYPHONE_CHECK_STATUS_URL no configurado en el entorno.")
         return None
 
     try:
@@ -35,26 +36,44 @@ def _consultar_estado_payphone(client_transaction_id: str):
             "Authorization": f"Bearer {PAYPHONE_API_KEY}",
             "Content-Type": "application/json",
         }
-        payload = {"clientTxId": client_transaction_id}
 
-        response = requests.post(
-            PAYPHONE_CHECK_STATUS_URL,
-            json=payload,
-            headers=headers,
-            timeout=10,
-        )
+        # Construir la URL: base + "/" + client_transaction_id
+        url = f"{PAYPHONE_CHECK_STATUS_URL.rstrip('/')}/{client_transaction_id}"
+
+        response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code != 200:
             print(f"ERROR Payphone status {client_transaction_id}: HTTP {response.status_code} - {response.text[:200]}")
             return None
 
         data = response.json()
-        # Payphone devuelve StatusCode en mayúsculas según el webhook viejo
-        status_code = data.get("StatusCode") or data.get("statusCode")
-        if status_code is None:
-            print(f"WARN Payphone status {client_transaction_id}: respuesta sin StatusCode: {data}")
+
+        # Payphone devuelve el estado en distintos campos según el flujo.
+        # Para API Sale/client, el campo puede ser 'status' o 'transactionStatus'.
+        # Los valores posibles: "Aceptado", "Cancelado", "Pendiente".
+        status_raw = (
+            data.get("status") or
+            data.get("transactionStatus") or
+            data.get("StatusCode") or
+            data.get("statusCode")
+        )
+
+        if status_raw is None:
+            print(f"WARN Payphone status {client_transaction_id}: respuesta sin estado: {data}")
             return None
-        return int(status_code)
+
+        # Normalizar a int para el resto del código:
+        # 3 = Aprobado, 2 = Rechazado, 1 = Pendiente
+        if isinstance(status_raw, str):
+            status_lower = status_raw.lower()
+            if "aceptado" in status_lower or "aprobado" in status_lower or "approved" in status_lower:
+                return 3
+            elif "cancelado" in status_lower or "rechazado" in status_lower or "rejected" in status_lower:
+                return 2
+            else:
+                return 1  # Pendiente o desconocido
+        else:
+            return int(status_raw)
 
     except Exception as e:
         print(f"ERROR consultando estado Payphone {client_transaction_id}: {str(e)}")
