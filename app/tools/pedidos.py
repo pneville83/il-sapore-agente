@@ -453,8 +453,9 @@ def orquestar_pedido(pedido_id: int, metodo_pago: str, confiable: bool, ubicacio
 
 def notificar_admin_pedido(pedido_id: int, admin_whatsapp: str):
     """
-    Encola en notificaciones_pendientes un mensaje para el admin.
-    El bot lo leerá y enviará.
+    Encola en notificaciones_pendientes un mensaje para el admin con el detalle
+    completo del pedido: productos, cantidades, precios, total, dirección y
+    método de pago. El bot lo leerá y enviará.
     """
     if not admin_whatsapp:
         return "Error: no hay admin_whatsapp para notificar."
@@ -468,7 +469,7 @@ def notificar_admin_pedido(pedido_id: int, admin_whatsapp: str):
         cursor.execute("""
             SELECT p.id, p.total, p.metodo_pago, p.observaciones,
                    p.direccion_mz, p.direccion_villa, p.etapa,
-                   c.nombre
+                   c.nombre, c.whatsapp
             FROM pedidos p
             LEFT JOIN clientes c ON c.id = p.cliente_id
             WHERE p.id = %s
@@ -477,17 +478,53 @@ def notificar_admin_pedido(pedido_id: int, admin_whatsapp: str):
         if not fila:
             return f"Error: pedido #{pedido_id} no existe."
 
-        pid, total, metodo, obs, mz, villa, etapa_ped, cliente_nombre = fila
+        (pid, total, metodo, obs, mz, villa, etapa_ped,
+         cliente_nombre, cliente_whatsapp) = fila
 
-        mensaje = (
-            f"Nuevo pedido #{pid} - Cliente: {cliente_nombre or 'sin nombre'} - "
-            f"Total: ${float(total):.2f} - Pago: {metodo} - "
-            f"Dir: Mz {mz or '?'} Villa {villa or '?'}"
-        )
+        # --- Detalle de productos del pedido ---
+        cursor.execute("""
+            SELECT d.cantidad, pr.nombre, d.nombre_variacion, d.precio_unitario
+            FROM detalles_pedido d
+            LEFT JOIN productos pr ON pr.id = d.producto_id
+            WHERE d.pedido_id = %s
+            ORDER BY d.id
+        """, (pedido_id,))
+        detalles = cursor.fetchall()
+
+        lineas_detalle = []
+        for cantidad, nombre_producto, nombre_variacion, precio_unitario in detalles:
+            nombre = nombre_producto or "Producto"
+            if nombre_variacion:
+                nombre = f"{nombre} ({nombre_variacion})"
+            lineas_detalle.append(
+                f"• {cantidad}x {nombre} — ${float(precio_unitario):.2f} c/u"
+            )
+        if not lineas_detalle:
+            lineas_detalle.append("• (sin detalle registrado)")
+
+        # --- Cliente (nombre + número para poder contactarlo) ---
+        cliente = cliente_nombre or "sin nombre"
+        if cliente_whatsapp:
+            cliente = f"{cliente} ({cliente_whatsapp})"
+
+        # --- Dirección ---
+        direccion = f"Mz {mz or '?'} Villa {villa or '?'}"
         if etapa_ped:
-            mensaje += f" - Etapa: {etapa_ped}"
+            direccion += f" - Etapa: {etapa_ped}"
+
+        mensaje = "\n".join([
+            f"🔔 Nuevo pedido #{pid}",
+            f"Cliente: {cliente}",
+            f"Pago: {metodo}",
+            "",
+            "Detalle:",
+            *lineas_detalle,
+            "",
+            f"Total: ${float(total):.2f}",
+            f"Dir: {direccion}",
+        ])
         if obs:
-            mensaje += f" - Obs: {obs}"
+            mensaje += f"\nObs: {obs}"
 
         cursor.execute("""
             INSERT INTO notificaciones_pendientes
@@ -513,9 +550,7 @@ def notificar_admin_pedido(pedido_id: int, admin_whatsapp: str):
         try:
             if cursor: cursor.close()
             if conexion: conexion.close()
-        except Exception:
-            pass
-
+        except Exception: pass
 
 # ============================================================
 # CAMBIAR MÉTODO DE PAGO DE UN PEDIDO EXISTENTE
