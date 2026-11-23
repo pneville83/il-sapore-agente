@@ -418,6 +418,44 @@ async def whatsapp_pedido_pendiente(whatsapp: str):
             if conexion: conexion.close()
         except Exception: pass
 
+@router.get("/whatsapp/pedido_metodo")
+async def whatsapp_pedido_metodo(pedido_id: int):
+    """
+    Devuelve el método de pago de un pedido. Lo usa el bot para decidir
+    si debe procesar una imagen como comprobante (solo si es transferencia).
+    Si el pedido es de tarjeta o efectivo, el bot NO debe procesar la imagen.
+    """
+    conexion = None
+    cursor = None
+    try:
+        conexion = psycopg2.connect(DATABASE_URL)
+        cursor = conexion.cursor()
+
+        cursor.execute(
+            "SELECT metodo_pago, estado FROM pedidos WHERE id = %s",
+            (pedido_id,)
+        )
+        fila = cursor.fetchone()
+        if not fila:
+            raise HTTPException(status_code=404, detail=f"Pedido #{pedido_id} no existe.")
+
+        metodo_pago, estado = fila
+        return {
+            "pedido_id": pedido_id,
+            "metodo_pago": metodo_pago,
+            "estado": estado,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al consultar método de pago: {str(e)}")
+    finally:
+        try:
+            if cursor: cursor.close()
+            if conexion: conexion.close()
+        except Exception: pass
+
 
 # ============================================================
 # CRON: procesar pagos Payphone confirmados
