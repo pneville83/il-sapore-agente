@@ -201,27 +201,38 @@ async def whatsapp_pendientes(ubicacion_id: int = 1):
         conexion = psycopg2.connect(DATABASE_URL)
         cursor = conexion.cursor()
 
-        # Números relevantes: admin de la ubicación + superadmin
+        # Destinatarios válidos para esta ubicación:
+        #   1) admin de la ubicación y superadmins (avisos de pedidos)
+        #   2) clientes que hayan pedido en esta ubicación (avisos de pago)
+        # Se excluye el número del propio bot (ubicaciones.whatsapp_bot) para que
+        # nunca se mande un mensaje a sí mismo.
         cursor.execute("""
-            SELECT whatsapp FROM usuarios
-            WHERE whatsapp IS NOT NULL
+            SELECT DISTINCT n.id, n.destinatario_whatsapp, n.mensaje, n.created_at
+            FROM notificaciones_pendientes n
+            WHERE n.enviado = FALSE
               AND (
-                (rol = 'admin' AND ubicacion_id = %s)
-                OR rol = 'superadmin'
+                    n.destinatario_whatsapp IN (
+                        SELECT u.whatsapp
+                        FROM usuarios u
+                        LEFT JOIN ubicaciones ub ON ub.id = u.ubicacion_id
+                        WHERE u.whatsapp IS NOT NULL
+                          AND u.whatsapp <> COALESCE(ub.whatsapp_bot, '')
+                          AND (
+                                (u.rol = 'admin' AND u.ubicacion_id = %s)
+                                OR u.rol = 'superadmin'
+                              )
+                    )
+                 OR n.destinatario_whatsapp IN (
+                        SELECT c2.whatsapp
+                        FROM clientes c2
+                        JOIN pedidos p ON p.cliente_id = c2.id
+                        WHERE p.ubicacion_id = %s
+                          AND c2.whatsapp IS NOT NULL
+                          AND c2.whatsapp <> ''
+                    )
               )
-        """, (ubicacion_id,))
-        numeros = [f[0] for f in cursor.fetchall()]
-
-        if not numeros:
-            return {"pendientes": []}
-
-        cursor.execute("""
-            SELECT id, destinatario_whatsapp, mensaje, created_at
-            FROM notificaciones_pendientes
-            WHERE enviado = FALSE
-              AND destinatario_whatsapp = ANY(%s)
-            ORDER BY created_at ASC
-        """, (numeros,))
+            ORDER BY n.created_at ASC
+        """, (ubicacion_id, ubicacion_id))
         filas = cursor.fetchall()
 
         pendientes = [
