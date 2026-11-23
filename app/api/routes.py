@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, Response, Header
+from fastapi import APIRouter, HTTPException, Request, Response, Header, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.agent.executor import agente
@@ -7,6 +7,7 @@ import psycopg2
 import os
 import uuid
 from app.core.config import DATABASE_URL
+from app.core.security import crear_token, verificar_token, exigir_bot
 
 router = APIRouter()
 
@@ -63,11 +64,27 @@ class BotEstado(BaseModel):
 
 @router.post("/preguntar")
 @limiter.limit("20/minute")
-async def preguntar(request: Request, response: Response, pregunta: Pregunta):
+async def preguntar(
+    request: Request,
+    response: Response,
+    pregunta: Pregunta,
+    authorization: Optional[str] = Header(None),
+):
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+
+    usuario_id = verificar_token(token)
+    if not usuario_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Token inválido o expirado. Vuelve a iniciar sesión.",
+        )
+
     resultado = agente(
         pregunta=pregunta.texto,
         whatsapp_usuario=pregunta.whatsapp_usuario,
-        usuario_id=pregunta.usuario_id,
+        usuario_id=usuario_id,
         historial_previo=pregunta.historial
     )
     return resultado
@@ -78,16 +95,16 @@ async def login(request: Request, response: Response, credenciales: LoginRequest
     from app.core.auth import autenticar_usuario
     usuario = autenticar_usuario(credenciales.username, credenciales.password)
     if usuario and "error" not in usuario:
+        usuario["token"] = crear_token(usuario["id"])
         return usuario
-    else:
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
 @router.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok", "mensaje": "Agente de Il Sapore funcionando"}
 
 @router.post("/whatsapp")
-async def whatsapp(mensaje: MensajeWhatsApp):
+async def whatsapp(mensaje: MensajeWhatsApp, _bot: None = Depends(exigir_bot)):
     resultado = agente(
         pregunta=mensaje.texto,
         whatsapp_usuario=mensaje.whatsapp_usuario,
@@ -104,7 +121,7 @@ async def whatsapp(mensaje: MensajeWhatsApp):
 # ============================================================
 
 @router.post("/whatsapp/comprobante")
-async def whatsapp_comprobante(comprobante: Comprobante):
+async def whatsapp_comprobante(comprobante: Comprobante, _bot: None = Depends(exigir_bot)):
     """
     El bot lo llama cuando un cliente manda una imagen de comprobante.
     Guarda en pending_transfers con status='ESPERANDO_AUTORIZACION'.
@@ -189,7 +206,7 @@ async def whatsapp_comprobante(comprobante: Comprobante):
 
 
 @router.get("/whatsapp/pendientes")
-async def whatsapp_pendientes(ubicacion_id: int = 1):
+async def whatsapp_pendientes(ubicacion_id: int = 1, _bot: None = Depends(exigir_bot)):
     """
     Devuelve las notificaciones_pendientes no enviadas para esa ubicación.
     Incluye las que van al admin de esa ubicación y al superadmin.
@@ -257,7 +274,7 @@ async def whatsapp_pendientes(ubicacion_id: int = 1):
 
 
 @router.post("/whatsapp/pendientes/marcar")
-async def whatsapp_pendientes_marcar(body: MarcarPendientes):
+async def whatsapp_pendientes_marcar(body: MarcarPendientes, _bot: None = Depends(exigir_bot)):
     """
     Marca notificaciones_pendientes como enviadas. El bot llama esto después
     de enviar los mensajes con éxito.
@@ -294,7 +311,7 @@ async def whatsapp_pendientes_marcar(body: MarcarPendientes):
 
 
 @router.post("/bot/estado")
-async def bot_estado_post(body: BotEstado):
+async def bot_estado_post(body: BotEstado, _bot: None = Depends(exigir_bot)):
     """
     Cambia el estado del bot (abrir/cerrar) para una ubicación.
     Solo admin de esa ubicación o superadmin.
@@ -354,7 +371,7 @@ async def bot_estado_post(body: BotEstado):
 
 
 @router.get("/bot/estado")
-async def bot_estado_get(ubicacion_id: int = 1):
+async def bot_estado_get(ubicacion_id: int = 1, _bot: None = Depends(exigir_bot)):
     """
     Devuelve el estado del bot para una ubicación.
     """
@@ -385,7 +402,7 @@ async def bot_estado_get(ubicacion_id: int = 1):
         except Exception: pass
 
 @router.get("/whatsapp/pedido_pendiente")
-async def whatsapp_pedido_pendiente(whatsapp: str):
+async def whatsapp_pedido_pendiente(whatsapp: str, _bot: None = Depends(exigir_bot)):
     """
     Busca el pedido pendiente más reciente de un cliente con metodo_pago='transferencia'
     y estado='Recibido'. Lo usa el bot para saber a qué pedido asociar el comprobante.
@@ -430,7 +447,7 @@ async def whatsapp_pedido_pendiente(whatsapp: str):
         except Exception: pass
 
 @router.get("/whatsapp/pedido_metodo")
-async def whatsapp_pedido_metodo(pedido_id: int):
+async def whatsapp_pedido_metodo(pedido_id: int, _bot: None = Depends(exigir_bot)):
     """
     Devuelve el método de pago de un pedido. Lo usa el bot para decidir
     si debe procesar una imagen como comprobante (solo si es transferencia).
