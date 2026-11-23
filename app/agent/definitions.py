@@ -154,19 +154,18 @@ herramientas = [
             }
         }
     },
-    {
+        {
         "type": "function",
         "function": {
-            "name": "generar_link_pago",
-            "description": "Genera un link de pago con Payphone para que el cliente pague con tarjeta.",
+            "name": "generar_link_pago_con_pending",
+            "description": "Genera un link de pago con Payphone para un pedido existente y registra la transacción pendiente. Úsala SIEMPRE que el método de pago sea 'tarjeta'. NO necesitas generar el client_transaction_id: lo hace la herramienta.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "monto": {"type": "number", "description": "Monto a pagar en dólares"},
-                    "client_transaction_id": {"type": "string", "description": "ID único de la transacción (máx 15 caracteres)"},
-                    "referencia": {"type": "string", "description": "Descripción del pedido"}
+                    "pedido_id": {"type": "integer", "description": "ID del pedido que se va a pagar (devuelto por crear_pedido)"},
+                    "ubicacion_id": {"type": "integer", "description": "ID de la ubicación (opcional; si se omite, se usa la del pedido)"}
                 },
-                "required": ["monto", "client_transaction_id", "referencia"]
+                "required": ["pedido_id"]
             }
         }
     },

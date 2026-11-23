@@ -14,6 +14,7 @@ from app.tools.gastos import registrar_gasto, consultar_gastos
 from app.tools.compras import registrar_compra, consultar_compras
 from app.tools.pagos import (
     generar_link_pago,
+    generar_link_pago_con_pending, 
     registrar_pago,
     consultar_bancos,
     crear_transferencia_pendiente,
@@ -47,6 +48,7 @@ MAPA_HERRAMIENTAS = {
     "consultar_compras": consultar_compras,
     "generar_link_pago": generar_link_pago,
     "registrar_pago": registrar_pago,
+    "generar_link_pago_con_pending": generar_link_pago_con_pending,
     "consultar_bancos": consultar_bancos,
     "crear_transferencia_pendiente": crear_transferencia_pendiente,
     "autorizar_transferencia": autorizar_transferencia,
@@ -71,6 +73,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "consultar_inventario",
         "buscar_producto_por_nombre",
         "generar_link_pago",
+        "generar_link_pago_con_pending",
         "buscar_o_crear_cliente",
         "crear_pedido",
         "cambiar_metodo_pago_pedido",
@@ -82,6 +85,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "consultar_compras",
         "consultar_bancos",
         "generar_link_pago",
+        "generar_link_pago_con_pending",
         "registrar_pago",
         "buscar_producto_por_nombre",
         "buscar_o_crear_cliente",
@@ -97,6 +101,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "consultar_compras",
         "consultar_flujo_dinero",
         "generar_link_pago",
+        "generar_link_pago_con_pending",
         "registrar_pago",
         "consultar_bancos",
         "crear_transferencia_pendiente",
@@ -122,6 +127,7 @@ HERRAMIENTAS_PERMITIDAS = {
         "consultar_compras",
         "consultar_flujo_dinero",
         "generar_link_pago",
+        "generar_link_pago_con_pending",
         "registrar_pago",
         "consultar_bancos",
         "crear_transferencia_pendiente",
@@ -262,7 +268,7 @@ FLUJO PARA TOMAR UN PEDIDO:
 6. Según el resultado de crear_pedido:
    - estado="ok": dile al cliente que su pedido fue recibido.
      * EFECTIVO: "Pedido creado, se cobra al entregar."
-     * TARJETA: genera el link con generar_link_pago y mándaselo.
+     * TARJETA: llama a generar_link_pago_con_pending con el pedido_id que acabas de crear y mándale el link al cliente. NO inventes el client_transaction_id.
      * TRANSFERENCIA: pídele el comprobante cuando pueda.
    - estado="etapa_no_habilitada": discúlpate: "Hoy no tenemos despacho a esa etapa. ¿Puedes recibir en otra o pasar a retirar?"
    - estado="faltan_datos_cliente": pide los campos_faltantes y vuelve a llamar.
@@ -293,6 +299,11 @@ REGLAS IMPORTANTES:
 - Si el cliente pide un adicional (Huevo, Tocino, Cheddar, etc.), ofrécelo como extra de un plato principal, no como plato aparte.
 - Si el cliente pide una etapa que no está disponible, ofrécele alternativa.
 - Si el cliente pregunta qué lleva un producto o qué es, usa buscar_producto_por_nombre y lee el campo 'descripcion'. No inventes ingredientes: si la descripción está vacía, di "no tengo esa información, consulta con el local".
+
+PAGOS CON TARJETA:
+- Si el cliente pagó con tarjeta, el pago se confirma automáticamente por Payphone.
+- NUNCA le pidas foto del comprobante si pagó con tarjeta.
+- Si el cliente manda una foto después de pagar con tarjeta, responde: "Tu pago con tarjeta es automático, no necesitas enviar comprobante. Tu pedido está en preparación."
 
 FORMATO:
 - Montos en texto normal (ej: $5.00).

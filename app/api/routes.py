@@ -1,13 +1,17 @@
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Header
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from app.agent.executor import agente
 from app.core.limiter import limiter
 import psycopg2
+import os
 import uuid
 from app.core.config import DATABASE_URL
 
 router = APIRouter()
+
+# Secreto para el cron (UptimeRobot). Configurar en Render y .env.
+CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 
 # ============================================================
@@ -412,4 +416,23 @@ async def whatsapp_pedido_pendiente(whatsapp: str):
         try:
             if cursor: cursor.close()
             if conexion: conexion.close()
-        except Exception: pass        
+        except Exception: pass
+
+
+# ============================================================
+# CRON: procesar pagos Payphone confirmados
+# ============================================================
+
+@router.post("/payphone/procesar_pendientes")
+async def payphone_procesar_pendientes(x_cron_secret: Optional[str] = Header(None)):
+    """
+    Procesa pending_transfers con status='PAYPHONE_CONFIRMED'.
+    Lo llama UptimeRobot cada 2-3 min con header X-Cron-Secret.
+    """
+    # Validar secreto (si CRON_SECRET está configurado)
+    if CRON_SECRET and x_cron_secret != CRON_SECRET:
+        raise HTTPException(status_code=403, detail="No autorizado.")
+
+    from app.tools.payphone_procesador import procesar_pendientes_payphone
+    resultado = procesar_pendientes_payphone()
+    return resultado

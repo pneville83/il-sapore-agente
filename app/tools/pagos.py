@@ -1,6 +1,7 @@
 import os
 import requests
 import psycopg2
+import uuid
 from app.core.config import DATABASE_URL, PAYPHONE_API_KEY, PAYPHONE_STORE_ID, PAYPHONE_GENERATE_LINK_URL
 
 def generar_link_pago(monto, client_transaction_id, referencia):
@@ -44,6 +45,111 @@ def generar_link_pago(monto, client_transaction_id, referencia):
             return f"Error: {response.status_code} - {response.text}"
     except Exception as e:
         return f"Error al generar link de pago: {str(e)}"
+
+
+# ============================================================
+# NUEVA: genera link + inserta pending_transfers en una transacción
+# ============================================================
+
+def generar_link_pago_con_pending(pedido_id, ubicacion_id=None):
+    """
+    Genera un link de Payphone para un pedido existente y registra la
+    transacción pendiente en pending_transfers con status='PAYPHONE_PENDING'.
+    
+    - Lee el total y la ubicación del pedido en la BD (no confía en el LLM).
+    - Genera client_transaction_id desde Python (no lo inventa el LLM).
+    - Inserta en pending_transfers ANTES de generar el link, para que si el
+      link falla, la fila quede en PAYPHONE_PENDING y se pueda reintentar.
+    - Devuelve {estado, link, client_transaction_id, pedido_id, monto}.
+    """
+    conexion = None
+    cursor = None
+    try:
+        conexion = psycopg2.connect(DATABASE_URL)
+        cursor = conexion.cursor()
+
+        # 1. Leer pedido (no confiar en el LLM para el monto)
+        cursor.execute(
+            "SELECT id, total, ubicacion_id, metodo_pago, estado FROM pedidos WHERE id = %s",
+            (pedido_id,)
+        )
+        fila = cursor.fetchone()
+        if not fila:
+            return f"Error: pedido #{pedido_id} no existe."
+
+        pid, total, ubicacion_pedido, metodo_actual, estado = fila
+
+        if metodo_actual != "tarjeta":
+            return f"Error: el pedido #{pedido_id} tiene metodo_pago='{metodo_actual}', no 'tarjeta'."
+        if estado != "Recibido":
+            return f"Error: el pedido #{pedido_id} está en estado '{estado}', no se puede pagar con tarjeta."
+
+        ubicacion_final = ubicacion_id or ubicacion_pedido
+
+        # 2. Generar client_transaction_id único (15 chars)
+        # Formato: PH + 13 hex chars (uuid4). Ej: PH3A4B5C6D7E8F9
+        client_transaction_id = f"PH{uuid.uuid4().hex[:13].upper()}"
+
+        # 3. Insertar en pending_transfers ANTES de generar el link
+        snapshot = {
+            "pedido_id": int(pid),
+            "monto": float(total),
+            "ubicacion_id": int(ubicacion_final),
+        }
+        cursor.execute("""
+            INSERT INTO pending_transfers
+                (id, customer_whatsapp, customer_name, media_data,
+                 convo_state_snapshot, order_details_snapshot, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'PAYPHONE_PENDING')
+        """, (
+            client_transaction_id,
+            "",  # customer_whatsapp: no lo tenemos aquí, el procesador no lo necesita
+            "",
+            None,
+            None,
+            psycopg2.extras.Json(snapshot),
+        ))
+        conexion.commit()
+
+        # 4. Generar el link con Payphone
+        referencia = f"Pedido #{pid}"
+        resultado_link = generar_link_pago(
+            monto=float(total),
+            client_transaction_id=client_transaction_id,
+            referencia=referencia,
+        )
+
+        if isinstance(resultado_link, dict) and resultado_link.get("link"):
+            return {
+                "estado": "ok",
+                "pedido_id": int(pid),
+                "monto": float(total),
+                "ubicacion_id": int(ubicacion_final),
+                "client_transaction_id": client_transaction_id,
+                "link": resultado_link["link"],
+                "mensaje": f"Link generado para pedido #{pid}. Total: ${float(total):.2f}.",
+            }
+        else:
+            # El link falló: dejamos la fila en PAYPHONE_PENDING y reportamos.
+            # Se puede reintentar borrando la fila o esperando a que el link se regenere.
+            return {
+                "estado": "error_link",
+                "pedido_id": int(pid),
+                "client_transaction_id": client_transaction_id,
+                "detalle": resultado_link,
+                "mensaje": f"Se registró la transacción {client_transaction_id} pero falló la generación del link. Detalle: {resultado_link}",
+            }
+
+    except Exception as e:
+        if conexion:
+            try: conexion.rollback()
+            except Exception: pass
+        return f"Error al generar link con pending: {str(e)}"
+    finally:
+        try:
+            if cursor: cursor.close()
+            if conexion: conexion.close()
+        except Exception: pass
 
 
 def registrar_pago(pedido_id, metodo, monto, banco_id=None, autorizacion=None, ubicacion_id=1):
@@ -268,4 +374,4 @@ def autorizar_transferencia(temp_id, autorizado, autorizacion=None):
         try:
             if cursor: cursor.close()
             if conexion: conexion.close()
-        except Exception: pass  
+        except Exception: pass
