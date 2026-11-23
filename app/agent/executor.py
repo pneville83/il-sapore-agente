@@ -13,7 +13,6 @@ from app.tools.ventas import consultar_ventas_dia, consultar_flujo_dinero
 from app.tools.gastos import registrar_gasto, consultar_gastos
 from app.tools.compras import registrar_compra, consultar_compras
 from app.tools.pagos import (
-    generar_link_pago,
     generar_link_pago_con_pending, 
     registrar_pago,
     consultar_bancos,
@@ -46,7 +45,6 @@ MAPA_HERRAMIENTAS = {
     "registrar_compra": registrar_compra,
     "consultar_flujo_dinero": consultar_flujo_dinero,
     "consultar_compras": consultar_compras,
-    "generar_link_pago": generar_link_pago,
     "registrar_pago": registrar_pago,
     "generar_link_pago_con_pending": generar_link_pago_con_pending,
     "consultar_bancos": consultar_bancos,
@@ -72,7 +70,6 @@ HERRAMIENTAS_PERMITIDAS = {
     "cliente": [
         "consultar_inventario",
         "buscar_producto_por_nombre",
-        "generar_link_pago",
         "generar_link_pago_con_pending",
         "buscar_o_crear_cliente",
         "crear_pedido",
@@ -84,7 +81,6 @@ HERRAMIENTAS_PERMITIDAS = {
         "consultar_gastos",
         "consultar_compras",
         "consultar_bancos",
-        "generar_link_pago",
         "generar_link_pago_con_pending",
         "registrar_pago",
         "buscar_producto_por_nombre",
@@ -100,7 +96,6 @@ HERRAMIENTAS_PERMITIDAS = {
         "registrar_compra",
         "consultar_compras",
         "consultar_flujo_dinero",
-        "generar_link_pago",
         "generar_link_pago_con_pending",
         "registrar_pago",
         "consultar_bancos",
@@ -126,7 +121,6 @@ HERRAMIENTAS_PERMITIDAS = {
         "registrar_compra",
         "consultar_compras",
         "consultar_flujo_dinero",
-        "generar_link_pago",
         "generar_link_pago_con_pending",
         "registrar_pago",
         "consultar_bancos",

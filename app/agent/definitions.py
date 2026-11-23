@@ -3,7 +3,7 @@ from app.tools.ventas import consultar_ventas_dia, consultar_flujo_dinero
 from app.tools.gastos import registrar_gasto, consultar_gastos
 from app.tools.compras import registrar_compra, consultar_compras
 from app.tools.pagos import (
-    generar_link_pago,
+    generar_link_pago_con_pending,
     registrar_pago,
     consultar_bancos,
     crear_transferencia_pendiente,

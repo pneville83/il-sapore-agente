@@ -1,6 +1,7 @@
 import os
 import requests
 import psycopg2
+import psycopg2.extras
 import uuid
 from app.core.config import DATABASE_URL, PAYPHONE_API_KEY, PAYPHONE_STORE_ID, PAYPHONE_GENERATE_LINK_URL
 
